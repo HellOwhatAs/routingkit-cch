@@ -31,7 +31,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist -i /opt/python/cp39-cp39/bin/python
+          args: --release --out dist -i /opt/python/cp39-cp39/bin/python3.9
           sccache: true
           manylinux: manylinux_2_34
           container: quay.io/pypa/manylinux_2_34_${{ matrix.platform.target }}
@@ -59,7 +59,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.platform.target }}
-          args: --release --out dist -i /opt/python/cp39-cp39/bin/python
+          args: --release --out dist -i /opt/python/cp39-cp39/bin/python3.9
           sccache: true
           manylinux: musllinux_1_2
       - name: Upload wheels
