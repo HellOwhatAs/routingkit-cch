@@ -39,6 +39,7 @@ std::unique_ptr<CCH> cch_new(rust::Slice<const uint32_t> order,
                              bool filter_always_inf_arcs);
 std::unique_ptr<CCHMetric> cch_metric_new(const CCH &cch, rust::Slice<const uint32_t> weight);
 void cch_metric_customize(CCHMetric &metric);
+void cch_metric_reset(CCHMetric &metric, rust::Slice<const uint32_t> weights);
 void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count);
 std::unique_ptr<CCHQuery> cch_query_new(const CCHMetric &metric);
 void cch_query_reset(CCHQuery &query, const CCHMetric &metric);
@@ -48,6 +49,16 @@ void cch_query_run(CCHQuery &query);
 uint32_t cch_query_distance(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_node_path(const CCHQuery &query);
 rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query);
+
+// One-to-many / many-to-one (pinned) query API
+void cch_query_pin_targets(CCHQuery &query, rust::Slice<const uint32_t> targets);
+void cch_query_run_to_pinned_targets(CCHQuery &query);
+rust::Vec<uint32_t> cch_query_distances_to_targets(const CCHQuery &query);
+void cch_query_reset_source(CCHQuery &query);
+void cch_query_pin_sources(CCHQuery &query, rust::Slice<const uint32_t> sources);
+void cch_query_run_to_pinned_sources(CCHQuery &query);
+rust::Vec<uint32_t> cch_query_distances_to_sources(const CCHQuery &query);
+void cch_query_reset_target(CCHQuery &query);
 rust::Vec<uint32_t> cch_compute_order_inertial(
     uint32_t node_count,
     rust::Slice<const uint32_t> tail,

@@ -46,6 +46,12 @@ void cch_metric_customize(CCHMetric &metric)
     metric.inner.customize();
 }
 
+void cch_metric_reset(CCHMetric &metric, rust::Slice<const uint32_t> weights)
+{
+    // Rebinds the weight pointer while reusing the internal forward/backward buffers.
+    metric.inner.reset(reinterpret_cast<const unsigned *>(weights.data()));
+}
+
 void cch_metric_parallel_customize(CCHMetric &metric, uint32_t thread_count)
 {
     RoutingKit::CustomizableContractionHierarchyParallelization par(*metric.inner.cch);
@@ -111,6 +117,70 @@ rust::Vec<uint32_t> cch_query_arc_path(const CCHQuery &query)
     for (auto x : path)
         out.push_back(static_cast<uint32_t>(x));
     return out;
+}
+
+namespace
+{
+    std::vector<unsigned> to_uvec_helper(rust::Slice<const uint32_t> s)
+    {
+        std::vector<unsigned> v;
+        v.reserve(s.size());
+        for (size_t i = 0; i < s.size(); ++i)
+            v.push_back(s[i]);
+        return v;
+    }
+}
+
+void cch_query_pin_targets(CCHQuery &query, rust::Slice<const uint32_t> targets)
+{
+    query.inner.pin_targets(to_uvec_helper(targets));
+}
+
+void cch_query_run_to_pinned_targets(CCHQuery &query)
+{
+    query.inner.run_to_pinned_targets();
+}
+
+rust::Vec<uint32_t> cch_query_distances_to_targets(const CCHQuery &query)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    auto dist = mut_query.get_distances_to_targets();
+    rust::Vec<uint32_t> out;
+    out.reserve(dist.size());
+    for (auto x : dist)
+        out.push_back(static_cast<uint32_t>(x));
+    return out;
+}
+
+void cch_query_reset_source(CCHQuery &query)
+{
+    query.inner.reset_source();
+}
+
+void cch_query_pin_sources(CCHQuery &query, rust::Slice<const uint32_t> sources)
+{
+    query.inner.pin_sources(to_uvec_helper(sources));
+}
+
+void cch_query_run_to_pinned_sources(CCHQuery &query)
+{
+    query.inner.run_to_pinned_sources();
+}
+
+rust::Vec<uint32_t> cch_query_distances_to_sources(const CCHQuery &query)
+{
+    auto &mut_query = const_cast<RoutingKit::CustomizableContractionHierarchyQuery &>(query.inner);
+    auto dist = mut_query.get_distances_to_sources();
+    rust::Vec<uint32_t> out;
+    out.reserve(dist.size());
+    for (auto x : dist)
+        out.push_back(static_cast<uint32_t>(x));
+    return out;
+}
+
+void cch_query_reset_target(CCHQuery &query)
+{
+    query.inner.reset_target();
 }
 
 rust::Vec<uint32_t> cch_compute_order_inertial(

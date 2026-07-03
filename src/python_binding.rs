@@ -1,6 +1,6 @@
 use crate::{
-    CCH, CCHMetric, CCHMetricPartialUpdater, CCHQuery, CCHQueryResult, compute_order_degree,
-    compute_order_inertial,
+    CCH, CCHManyToOne, CCHMetric, CCHMetricPartialUpdater, CCHOneToMany, CCHQuery, CCHQueryResult,
+    compute_order_degree, compute_order_inertial,
 };
 use pyo3::prelude::*;
 use std::collections::HashMap;
@@ -73,6 +73,17 @@ impl PyCCHMetric {
     fn weights(&self) -> Vec<u32> {
         self.inner.weights().to_vec()
     }
+
+    /// Rebind the metric to a new weight vector and re-customize,
+    /// reusing internal buffers (cheaper than building a new CCHMetric).
+    fn reset(&mut self, py: Python, weights: Vec<u32>) {
+        assert!(
+            self.query_count == 0,
+            "cannot reset weights while there are active queries using the metric"
+        );
+        let inner = &mut self.inner;
+        py.detach(|| inner.reset(weights));
+    }
 }
 
 #[pyclass(unsendable)]
@@ -101,6 +112,110 @@ impl PyCCHMetricPartialUpdater {
         );
         let a = unsafe { extend_lifetime_mut(&mut metric_ref.inner) };
         self.inner.apply(a, &updates);
+    }
+}
+
+#[pyclass(unsendable)]
+#[pyo3(name = "CCHOneToMany")]
+struct PyCCHOneToMany {
+    inner: CCHOneToMany<'static>, // should drop before metric
+    _metric: Py<PyCCHMetric>,
+}
+
+#[pymethods]
+impl PyCCHOneToMany {
+    #[new]
+    fn new(py: Python, metric: Py<PyCCHMetric>, targets: Vec<u32>) -> Self {
+        let metric_static = unsafe { extend_lifetime(&metric.borrow(py).inner) };
+        // Construct first so a panic (invalid target id) cannot leak the query_count.
+        let inner = CCHOneToMany::new(metric_static, &targets);
+        metric.borrow_mut(py).query_count += 1;
+        Self {
+            inner,
+            _metric: metric,
+        }
+    }
+
+    /// Number of pinned targets (= length of the returned distance lists).
+    #[getter]
+    fn target_count(&self) -> usize {
+        self.inner.target_count()
+    }
+
+    /// Replace the pinned target set, reusing internal buffers
+    /// (cheaper than constructing a new CCHOneToMany).
+    fn repin_targets(&mut self, targets: Vec<u32>) {
+        self.inner.repin_targets(&targets);
+    }
+
+    /// Distances from `source` to every pinned target (None = unreachable).
+    fn distances_from(&mut self, py: Python, source: u32) -> Vec<Option<u32>> {
+        let inner = &mut self.inner;
+        py.detach(|| inner.distances_from(source))
+    }
+
+    /// Multi-source variant taking `(source, initial_dist)` pairs.
+    fn distances_from_multi(&mut self, py: Python, sources: Vec<(u32, u32)>) -> Vec<Option<u32>> {
+        let inner = &mut self.inner;
+        py.detach(|| inner.distances_from_multi(&sources))
+    }
+}
+
+impl Drop for PyCCHOneToMany {
+    fn drop(&mut self) {
+        Python::attach(|py| self._metric.borrow_mut(py).query_count -= 1);
+    }
+}
+
+#[pyclass(unsendable)]
+#[pyo3(name = "CCHManyToOne")]
+struct PyCCHManyToOne {
+    inner: CCHManyToOne<'static>, // should drop before metric
+    _metric: Py<PyCCHMetric>,
+}
+
+#[pymethods]
+impl PyCCHManyToOne {
+    #[new]
+    fn new(py: Python, metric: Py<PyCCHMetric>, sources: Vec<u32>) -> Self {
+        let metric_static = unsafe { extend_lifetime(&metric.borrow(py).inner) };
+        // Construct first so a panic (invalid source id) cannot leak the query_count.
+        let inner = CCHManyToOne::new(metric_static, &sources);
+        metric.borrow_mut(py).query_count += 1;
+        Self {
+            inner,
+            _metric: metric,
+        }
+    }
+
+    /// Number of pinned sources (= length of the returned distance lists).
+    #[getter]
+    fn source_count(&self) -> usize {
+        self.inner.source_count()
+    }
+
+    /// Replace the pinned source set, reusing internal buffers
+    /// (cheaper than constructing a new CCHManyToOne).
+    fn repin_sources(&mut self, sources: Vec<u32>) {
+        self.inner.repin_sources(&sources);
+    }
+
+    /// Distances from every pinned source to `target` (None = unreachable).
+    fn distances_to(&mut self, py: Python, target: u32) -> Vec<Option<u32>> {
+        let inner = &mut self.inner;
+        py.detach(|| inner.distances_to(target))
+    }
+
+    /// Multi-target variant taking `(target, initial_dist)` pairs.
+    fn distances_to_multi(&mut self, py: Python, targets: Vec<(u32, u32)>) -> Vec<Option<u32>> {
+        let inner = &mut self.inner;
+        py.detach(|| inner.distances_to_multi(&targets))
+    }
+}
+
+impl Drop for PyCCHManyToOne {
+    fn drop(&mut self) {
+        Python::attach(|py| self._metric.borrow_mut(py).query_count -= 1);
     }
 }
 
@@ -140,7 +255,7 @@ impl PyCCHQuery {
         }
     }
 
-    fn run_multi_st_with_dist(
+    fn run_multi(
         self_: Py<Self>,
         py: Python,
         sources: Vec<(u32, u32)>,
@@ -203,9 +318,13 @@ mod routingkit_cch {
     #[pymodule_export]
     use super::PyCCH;
     #[pymodule_export]
+    use super::PyCCHManyToOne;
+    #[pymodule_export]
     use super::PyCCHMetric;
     #[pymodule_export]
     use super::PyCCHMetricPartialUpdater;
+    #[pymodule_export]
+    use super::PyCCHOneToMany;
     #[pymodule_export]
     use super::PyCCHQuery;
     #[pymodule_export]

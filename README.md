@@ -21,7 +21,9 @@ The preprocessing is slow but does not rely on the arc weights. The Customizatio
 - Build indices from raw edge lists (tail/head arrays).
 - Ordering helpers: nested dissection (inertial separator heuristic) and degree fallback.
 - Sequential & parallel customization, and partial weight update afterwards.
+- Cheap full re-customization via `CCHMetric::reset` (reuses internal buffers).
 - Reusable query object supporting multi-source / multi-target searches.
+- Batched one-to-many / many-to-one queries with pinned targets/sources (`CCHOneToMany`, `CCHManyToOne`).
 - Path extraction: node sequence & original arc id sequence.
 - Thread-safe sharing of immutable structures (`CCH`, `CCHMetric`).
 
@@ -107,6 +109,18 @@ let metric = CCHMetric::parallel_new(&cch, weights.clone(), 0); // 0 -> auto thr
 ```
 Use when graphs are large enough; for tiny graphs overhead may outweigh benefit.
 
+## Full Re-Customization (Metric Reset)
+When all (or most) weights change (e.g. periodic traffic refresh), rebind the existing metric
+instead of building a new one; internal shortcut-weight buffers are reused:
+```rust,ignore
+let mut metric = CCHMetric::new(&cch, weights);
+// ... later, new weights for the same CCH ...
+metric.reset(new_weights); // re-customizes in place
+// or, with the `openmp` feature:
+metric.parallel_reset(new_weights, 0); // 0 -> auto threads
+```
+Requires exclusive access: drop all queries borrowing the metric first (enforced by the borrow checker).
+
 ## Incremental (Partial) Weight Updates
 If only a small subset of arc weights change (e.g. traffic incidents), you can avoid a full re-customization:
 ```rust,ignore
@@ -136,6 +150,26 @@ q.add_target(5, 0);
 ```
 `CCHQuery` is not thread-safe; create one instance per thread and reuse it is far cheaper than constructing a new one.
 
+## One-to-Many / Many-to-One (Batched) Queries
+When you need distances from one node to many fixed destinations (distance tables, matrices,
+k-nearest), pin the destination set once and query it in a single sweep — much faster than a
+point-to-point query per destination:
+```rust,ignore
+use routingkit_cch::{CCHOneToMany, CCHManyToOne};
+
+let mut otm = CCHOneToMany::new(&metric, &targets); // pin once (moderately expensive)
+for s in sources {
+    let dist: Vec<Option<u32>> = otm.distances_from(s); // aligned with `targets`; None = unreachable
+}
+
+// Mirror image: distances from many fixed sources to a target.
+let mut mto = CCHManyToOne::new(&metric, &sources);
+let dist = mto.distances_to(target); // aligned with `sources`
+```
+Multi-source/-target variants with initial distance offsets are available
+(`distances_from_multi`, `distances_to_multi`). Note: batched queries return distances only
+(no path reconstruction), matching the underlying RoutingKit API.
+
 ## Path Reconstruction
 After `run() -> CCHQueryResult`:
 - `CCHQueryResult::distance()` -> `Option<u32>` (None = unreachable)
@@ -149,6 +183,8 @@ After `run() -> CCHQueryResult`:
 | `CCHMetric`               | yes  | yes  | Read-only after customization / partial-update    |
 | `CCHQuery`                | yes  | no   | Internal mutable labels; reuse it within thread   |
 | `CCHQueryResult`          | yes  | no   | Runned state of `CCHQuery`, actually `&mut` of it |
+| `CCHOneToMany`            | yes  | no   | Internal mutable labels; reuse it within thread   |
+| `CCHManyToOne`            | yes  | no   | Internal mutable labels; reuse it within thread   |
 | `CCHMetricPartialUpdater` | no   | no   | Should have nothing to do with parallel           |
 
 Create separate queries per thread for parallel batch querying.

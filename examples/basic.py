@@ -20,7 +20,7 @@ def main():
 
     updater.apply(metric, {0: 20, 2: 1})
     q = rk.CCHQuery(metric)
-    res = q.run_multi_st_with_dist([(0, 0)], [(3, 0)])
+    res = q.run_multi([(0, 0)], [(3, 0)])
     yield res
     del res
 
