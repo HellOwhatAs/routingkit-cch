@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 cxx = "1"
-pyo3 = { version = "0.27.0", optional = true }
+pyo3 = { version = "0.27.0", optional = true, features = ["abi3-py39"] }
 
 [build-dependencies]
 cxx-build = "1"
